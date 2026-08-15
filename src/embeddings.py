@@ -1,18 +1,16 @@
 """NVIDIA API embedding client for Study RAG ingestion."""
 
-import os
 import time
 from collections.abc import Sequence
 
-from dotenv import load_dotenv
 from openai import APIConnectionError, APIError, APIStatusError, OpenAI, RateLimitError
 
 from src.config import (
     EMBEDDING_BATCH_SIZE,
     EMBEDDING_MAX_RETRIES,
+    get_embedding_api_key,
     NVIDIA_API_BASE_URL,
     NVIDIA_EMBEDDING_MODEL,
-    PROJECT_ROOT,
 )
 
 
@@ -24,13 +22,10 @@ class NvidiaEmbedder:
     """Generate passage and query embeddings through NVIDIA's API."""
 
     def __init__(self) -> None:
-        load_dotenv(PROJECT_ROOT / ".env")
-        api_key = os.getenv("NVIDIA_API_KEY")
-        if not api_key:
-            raise EmbeddingError(
-                "NVIDIA_API_KEY is missing. Add it to .env before using Study RAG."
-            )
-
+        try:
+            api_key = get_embedding_api_key()
+        except ValueError as error:
+            raise EmbeddingError(str(error)) from error
         self._client = OpenAI(api_key=api_key, base_url=NVIDIA_API_BASE_URL)
 
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:

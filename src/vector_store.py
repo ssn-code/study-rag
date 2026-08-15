@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 
 import chromadb
+from chromadb.errors import NotFoundError
 
 from src.config import CHROMA_COLLECTION_NAME, CHROMA_DB_DIR
 
@@ -14,14 +15,21 @@ class VectorStoreError(RuntimeError):
 class StudyVectorStore:
     """Store chunk text, metadata, and externally generated embeddings in ChromaDB."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, create_if_missing: bool = True) -> None:
         try:
             CHROMA_DB_DIR.mkdir(parents=True, exist_ok=True)
             client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
-            self.collection = client.get_or_create_collection(
-                name=CHROMA_COLLECTION_NAME,
-                metadata={"hnsw:space": "cosine"},
-            )
+            if create_if_missing:
+                self.collection = client.get_or_create_collection(
+                    name=CHROMA_COLLECTION_NAME,
+                    metadata={"hnsw:space": "cosine"},
+                )
+            else:
+                self.collection = client.get_collection(name=CHROMA_COLLECTION_NAME)
+        except NotFoundError as error:
+            raise VectorStoreError(
+                "The ChromaDB collection is missing. Run document ingestion before retrieval."
+            ) from error
         except Exception as error:
             raise VectorStoreError("Could not initialize the local ChromaDB database.") from error
 
@@ -74,3 +82,25 @@ class StudyVectorStore:
             )
         except Exception as error:
             raise VectorStoreError("Could not inspect the ChromaDB collection.") from error
+
+    def similarity_search(
+        self,
+        query_embedding: Sequence[float],
+        *,
+        top_k: int,
+        where: dict[str, str] | None = None,
+    ) -> dict[str, object]:
+        """Query persisted vectors without generating any new document embeddings."""
+        if not query_embedding:
+            raise VectorStoreError("Cannot search ChromaDB with an empty query embedding.")
+        if top_k < 1:
+            raise VectorStoreError("top_k must be at least 1.")
+        try:
+            return self.collection.query(
+                query_embeddings=[list(query_embedding)],
+                n_results=top_k,
+                where=where,
+                include=["documents", "metadatas", "distances"],
+            )
+        except Exception as error:
+            raise VectorStoreError("Could not search the ChromaDB collection.") from error

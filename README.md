@@ -42,3 +42,21 @@ To process one document:
 ```
 
 ChromaDB data is persisted under `chroma_db/` and is excluded from Git. Each record contains a stable chunk ID, the original chunk text, its NVIDIA embedding, and metadata for the source filename, page number, chunk index, and document type. Re-running ingestion skips unchanged chunks rather than duplicating them.
+
+## Phase 3: retrieval
+
+Retrieval embeds only the user's query with the same NVIDIA embedding model used for ingestion. The query vector is then sent to ChromaDB for a top-K similarity search over the persisted document vectors; documents are not re-embedded.
+
+Run a retrieval test:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.retriever "What topics are covered in the computer networks course?"
+```
+
+`top_k` defaults to 5 and controls the maximum number of nearest chunks returned. Use `--top-k` to change it, and optionally limit the search with stored metadata:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.retriever "What is TCP?" --top-k 3 --source Networks-syl.pdf
+```
+
+Each result prints its chunk ID, source filename, page number, chunk index, ChromaDB distance, and original text. Retrieval returns the closest chunks even for unrelated questions; no answer generation or similarity threshold is implemented.

@@ -4,6 +4,11 @@ import argparse
 from dataclasses import dataclass
 import sys
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 from src.config import DEFAULT_TOP_K
 from src.embeddings import EmbeddingError
 from src.generator import GenerationError, NvidiaGenerator

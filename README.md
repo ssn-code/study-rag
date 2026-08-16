@@ -168,3 +168,32 @@ To preview changes without making API calls or modifying any databases:
 .\.venv\Scripts\python.exe -m src.sync --dry-run
 ```
 
+## Phase 6: Citations and Source Grounding
+
+Phase 6 connects citation tracking and citation validation to the RAG pipeline. It ensures that every generated answer is traceable to the exact study material used to produce it.
+
+### Features
+1. **Source Metadata Preservation**: The pipeline preserves location details across document formats, supporting pages (for PDF), slides (for PPTX), and sections/paragraphs (for DOCX).
+2. **Context Index Mapping & Deduplication**: If multiple retrieved chunks refer to the same source location (e.g. the same file and page number), they are combined into a single citation index (e.g., `[1]`) to prevent redundant citation entries.
+3. **Citation Validation**: Extracts bracketed citation markers from the generated text and verifies that they correspond to actual retrieved source keys. Out-of-bounds citations manufactured by the LLM are safely discarded.
+4. **Prompt Injection Protection**: The system prompt instructs the model to treat context solely as data/untrusted reference material to prevent malicious text inside documents from overriding system instructions.
+
+### CLI Example Output
+```text
+QUESTION:
+Explain the TCP three-way handshake.
+
+ANSWER:
+TCP establishes a connection using a three-way handshake [1].
+
+SOURCES:
+[1] computer-networks.pdf — Page 42
+[2] networking.pptx — Slide 18
+```
+
+### Citation Test Suite
+To run the verification test suite:
+```powershell
+.\.venv\Scripts\python.exe -m unittest src.test_citations
+```
+

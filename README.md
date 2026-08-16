@@ -139,3 +139,32 @@ SOURCES:
 
 No chat memory, web search, or additional external search strategies are implemented.
 
+## Phase 5: Knowledge Base Synchronization / Incremental Vector DB Updates
+
+Phase 5 introduces incremental vector database updates and synchronization between the local `data/` directory and ChromaDB.
+
+### Why Incremental Synchronization is Needed
+Rebuilding the entire ChromaDB collection from scratch on every change or addition wastes NVIDIA embedding API calls and network bandwidth. Incremental synchronization ensures only new or changed files are processed.
+
+### How it Works
+1. **Lightweight Document Registry**: A local SQLite database (`chroma_db/registry.db`) tracks document states, including unique relative paths, document IDs, file hashes, last modified timestamps, chunk counts, and sync status.
+2. **File Hashing**: Every document in `data/` is hashed using SHA-256. 
+3. **Change Detection**:
+   - **NEW**: The file exists in `data/` but not in the registry. It is extracted, chunked, embedded, upserted to ChromaDB, and added to the registry.
+   - **UNCHANGED**: The file exists and its content hash matches the registry. It is skipped completely (no extraction, no chunking, no API calls, no database writes).
+   - **MODIFIED**: The file exists but its content hash differs from the registry. It is extracted, chunked, and embedded first. If successful, new chunks are written, old chunks are deleted, and the registry is updated.
+   - **DELETED**: The file is in the registry but no longer exists in `data/`. All corresponding chunks are deleted from ChromaDB, and the file is removed from the registry.
+4. **Stable Chunk IDs**: Chunk IDs are deterministic and formed as `f"{document_hash}_{chunk_index}"` to uniquely tie chunks to specific file versions and prevent ID collision or duplicates.
+
+### Run Synchronization
+To scan `data/` and synchronize the knowledge base:
+```powershell
+.\.venv\Scripts\python.exe -m src.sync
+```
+
+### Dry Run Option
+To preview changes without making API calls or modifying any databases:
+```powershell
+.\.venv\Scripts\python.exe -m src.sync --dry-run
+```
+

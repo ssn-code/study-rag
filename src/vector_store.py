@@ -73,6 +73,28 @@ class StudyVectorStore:
         except Exception as error:
             raise VectorStoreError("Could not reconcile existing chunks for this source.") from error
 
+    def delete_source_chunks(self, source: str) -> int:
+        """Remove all chunks associated with a specific source filename."""
+        try:
+            result = self.collection.get(where={"source": source}, include=[])
+            deleted_count = len(result["ids"])
+            if deleted_count > 0:
+                self.collection.delete(ids=result["ids"])
+            return deleted_count
+        except Exception as error:
+            raise VectorStoreError(f"Could not delete chunks for source '{source}': {error}") from error
+
+    def delete_chunks_by_hash(self, document_hash: str) -> int:
+        """Remove all chunks associated with a specific document hash."""
+        try:
+            result = self.collection.get(where={"document_hash": document_hash}, include=[])
+            deleted_count = len(result["ids"])
+            if deleted_count > 0:
+                self.collection.delete(ids=result["ids"])
+            return deleted_count
+        except Exception as error:
+            raise VectorStoreError(f"Could not delete chunks for hash '{document_hash}': {error}") from error
+
     def inspect(self, limit: int = 3) -> dict[str, object]:
         """Return a small non-search inspection sample for verification."""
         try:

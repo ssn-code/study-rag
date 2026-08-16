@@ -10,6 +10,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 DATA_DIR = PROJECT_ROOT / "data"
 CHROMA_DB_DIR = PROJECT_ROOT / "chroma_db"
+REGISTRY_DB_PATH = CHROMA_DB_DIR / "registry.db"
 
 NVIDIA_EMBEDDING_MODEL = os.getenv("NVIDIA_EMBEDDING_MODEL", "nvidia/llama-nemotron-embed-1b-v2")
 NVIDIA_LLM_MODEL = os.getenv("NVIDIA_LLM_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")

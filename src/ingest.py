@@ -5,7 +5,7 @@ import sys
 
 from pypdf import PdfReader
 
-from src.config import CHUNK_OVERLAP, CHUNK_SIZE, DATA_DIR
+from src.config import CHUNK_OVERLAP, CHUNK_SIZE, DATA_DIR, PROJECT_ROOT
 from src.embeddings import EmbeddingError, NvidiaEmbedder
 from src.vector_store import StudyVectorStore, VectorStoreError
 
@@ -39,7 +39,7 @@ def extract_pdf_pages(pdf_path: Path) -> list[str]:
     return [page.extract_text() or "" for page in reader.pages]
 
 
-def create_chunks(pdf_path: Path, pages: list[str]) -> list[Chunk]:
+def create_chunks(pdf_path: Path, pages: list[str], document_hash: str | None = None) -> list[Chunk]:
     """Split page text into small overlapping chunks for the embedding API."""
     chunks: list[Chunk] = []
     chunk_index = 0
@@ -50,17 +50,32 @@ def create_chunks(pdf_path: Path, pages: list[str]) -> list[Chunk]:
         while start < len(text):
             chunk_text = text[start : start + CHUNK_SIZE].strip()
             if chunk_text:
-                stable_value = f"{pdf_path.name}|{page_number}|{chunk_index}|{chunk_text}"
+                if document_hash:
+                    chunk_id = f"{document_hash}_{chunk_index}"
+                else:
+                    stable_value = f"{pdf_path.name}|{page_number}|{chunk_index}|{chunk_text}"
+                    chunk_id = sha256(stable_value.encode("utf-8")).hexdigest()
+
+                try:
+                    rel_path = str(pdf_path.relative_to(PROJECT_ROOT).as_posix())
+                except ValueError:
+                    rel_path = str(pdf_path.as_posix())
+
+                metadata: dict[str, str | int] = {
+                    "source": pdf_path.name,
+                    "relative_path": rel_path,
+                    "page_number": page_number,
+                    "chunk_index": chunk_index,
+                    "document_type": pdf_path.suffix[1:].lower() or "pdf",
+                }
+                if document_hash:
+                    metadata["document_hash"] = document_hash
+
                 chunks.append(
                     Chunk(
-                        id=sha256(stable_value.encode("utf-8")).hexdigest(),
+                        id=chunk_id,
                         text=chunk_text,
-                        metadata={
-                            "source": pdf_path.name,
-                            "page_number": page_number,
-                            "chunk_index": chunk_index,
-                            "document_type": "pdf",
-                        },
+                        metadata=metadata,
                     )
                 )
                 chunk_index += 1

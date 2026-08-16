@@ -2,6 +2,7 @@
 
 import argparse
 from dataclasses import dataclass
+import re
 import sys
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -22,11 +23,15 @@ class RAGError(RuntimeError):
 
 @dataclass(frozen=True)
 class SourceReference:
-    """Source metadata retained alongside a grounded generated answer."""
+    """Verified source metadata citation."""
 
+    id: int
     source: str
-    page_number: int
-    chunk_index: int
+    type: str
+    page: int | None = None
+    slide: int | None = None
+    section: str | None = None
+    chunk_index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -37,27 +42,71 @@ class RAGResult:
     sources: list[SourceReference]
 
 
-def build_context(results: list[RetrievalResult]) -> str:
+def get_chunk_source_info(metadata: dict) -> tuple[tuple, dict]:
+    """Extract location parameters and format source info structure."""
+    source = metadata.get("source", "Unknown")
+    file_type = metadata.get("document_type", "pdf")
+    
+    page = metadata.get("page_number")
+    slide = metadata.get("slide_number")
+    section = metadata.get("section")
+    chunk_index = metadata.get("chunk_index")
+    
+    # Construct a unique key for deduplication
+    if page is not None:
+        key = (source, "page", page)
+        info = {"source": source, "type": file_type, "page": page}
+    elif slide is not None:
+        key = (source, "slide", slide)
+        info = {"source": source, "type": file_type, "slide": slide}
+    elif section is not None:
+        key = (source, "section", section)
+        info = {"source": source, "type": file_type, "section": section}
+    else:
+        key = (source, "chunk", chunk_index)
+        info = {"source": source, "type": file_type, "chunk_index": chunk_index}
+        
+    return key, info
+
+
+def build_context(results: list[RetrievalResult], mapping: list[int] | None = None) -> str:
     """Format retrieved chunks with their original metadata for the LLM prompt."""
     context_sections: list[str] = []
     for position, result in enumerate(results, start=1):
         metadata = result.metadata
-        try:
-            source = metadata["source"]
-            page_number = metadata["page_number"]
-            chunk_index = metadata["chunk_index"]
-        except KeyError as error:
-            raise RAGError("A retrieved chunk is missing required source metadata.") from error
-        if not isinstance(source, str) or not isinstance(page_number, int) or not isinstance(chunk_index, int):
-            raise RAGError("A retrieved chunk contains invalid source metadata.")
+        source = metadata.get("source", "Unknown")
+        source_id = mapping[position - 1] if mapping else position
+        
+        meta_lines = [f"SOURCE [{source_id}]", f"Document: {source}"]
+        if "page_number" in metadata:
+            meta_lines.append(f"Page: {metadata['page_number']}")
+        if "slide_number" in metadata:
+            meta_lines.append(f"Slide: {metadata['slide_number']}")
+        if "section" in metadata:
+            meta_lines.append(f"Section: {metadata['section']}")
+        if "chunk_index" in metadata:
+            meta_lines.append(f"Chunk: {metadata['chunk_index']}")
+            
+        meta_header = "\n".join(meta_lines)
         context_sections.append(
-            f"SOURCE {position}\n"
-            f"Document: {source}\n"
-            f"Page: {page_number}\n"
-            f"Chunk: {chunk_index}\n\n"
+            f"{meta_header}\n\n"
             f"{result.text}"
         )
     return "\n\n---\n\n".join(context_sections)
+
+
+def extract_citations(answer: str, max_valid_id: int) -> set[int]:
+    """Parse valid citations in formats like [1], [1, 2], [1] [2] from the answer."""
+    bracketed = re.findall(r'\[([^\]]+)\]', answer)
+    citations = set()
+    for item in bracketed:
+        parts = re.split(r'[\s,]+', item)
+        for p in parts:
+            if p.isdigit():
+                val = int(p)
+                if 1 <= val <= max_valid_id:
+                    citations.add(val)
+    return citations
 
 
 def answer_query(
@@ -74,16 +123,42 @@ def answer_query(
     if not results:
         return RAGResult("No study chunks were retrieved for this question.", [])
 
-    context = build_context(results)
+    # Map unique sources to sequential IDs (1-based)
+    unique_sources_map = {}
+    unique_sources_list = []
+    mapping = []
+    
+    for result in results:
+        key, info = get_chunk_source_info(result.metadata)
+        if key not in unique_sources_map:
+            new_id = len(unique_sources_map) + 1
+            unique_sources_map[key] = new_id
+            info["id"] = new_id
+            unique_sources_list.append(info)
+        mapping.append(unique_sources_map[key])
+
+    context = build_context(results, mapping)
     answer = NvidiaGenerator().generate(query, context)
-    sources = [
-        SourceReference(
-            source=result.metadata["source"],
-            page_number=result.metadata["page_number"],
-            chunk_index=result.metadata["chunk_index"],
-        )
-        for result in results
-    ]
+    
+    # Extract and validate citations cited in the generated answer
+    cited_ids = extract_citations(answer, len(unique_sources_list))
+    
+    # Convert validated unique sources to SourceReference objects
+    sources = []
+    for info in unique_sources_list:
+        if info["id"] in cited_ids:
+            sources.append(
+                SourceReference(
+                    id=info["id"],
+                    source=info["source"],
+                    type=info["type"],
+                    page=info.get("page"),
+                    slide=info.get("slide"),
+                    section=info.get("section"),
+                    chunk_index=info.get("chunk_index"),
+                )
+            )
+            
     return RAGResult(answer=answer, sources=sources)
 
 
@@ -101,10 +176,20 @@ def print_result(query: str, result: RAGResult) -> None:
     print(f"ANSWER:\n{result.answer}\n")
     print("SOURCES:")
     if not result.sources:
-        print("No retrieved sources.")
+        print("No verified sources.")
         return
-    for position, source in enumerate(result.sources, start=1):
-        print(f"{position}. {source.source} — Page {source.page_number}, Chunk {source.chunk_index}")
+    for source in result.sources:
+        location = ""
+        if source.page is not None:
+            location = f" — Page {source.page}"
+        elif source.slide is not None:
+            location = f" — Slide {source.slide}"
+        elif source.section is not None:
+            location = f" — Section: {source.section}"
+        elif source.chunk_index is not None:
+            location = f" — Chunk {source.chunk_index}"
+            
+        print(f"[{source.id}] {source.source}{location}")
 
 
 def main() -> None:

@@ -11,7 +11,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-from src.config import DATA_DIR, PROJECT_ROOT
+from src.config import DATA_DIR, PROJECT_ROOT, REGISTRY_DB_PATH
 from src.embeddings import EmbeddingError, NvidiaEmbedder
 from src.ingest import create_chunks, extract_pdf_pages
 from src.registry import DocumentRegistry, RegistryError
@@ -23,6 +23,15 @@ def discover_documents(data_dir: Path) -> list[Path]:
     return sorted(
         path for path in data_dir.glob("**/*")
         if path.is_file() and path.suffix.lower() == ".pdf"
+    )
+
+
+def is_document_synchronized(registered_doc: dict | None, file_hash: str) -> bool:
+    """Return whether a document's current content was successfully indexed."""
+    return bool(
+        registered_doc
+        and registered_doc["file_hash"] == file_hash
+        and registered_doc["sync_status"] == "synchronized"
     )
 
 
@@ -56,7 +65,11 @@ def main() -> None:
     print("Scanning documents...")
 
     try:
-        registry = DocumentRegistry()
+        registry = (
+            None
+            if args.dry_run and not REGISTRY_DB_PATH.exists()
+            else DocumentRegistry()
+        )
     except RegistryError as error:
         print(f"Error: Registry initialization failed: {error}")
         sys.exit(1)
@@ -86,7 +99,7 @@ def main() -> None:
             print(f"Error accessing file {file_path.name}: {error}")
             continue
 
-        registered_doc = registry.get_document(rel_path)
+        registered_doc = registry.get_document(rel_path) if registry else None
 
         doc_info = {
             "path": file_path,
@@ -99,14 +112,15 @@ def main() -> None:
 
         if not registered_doc:
             new_docs.append(doc_info)
-        elif registered_doc["file_hash"] != file_hash:
-            doc_info["old_hash"] = registered_doc["file_hash"]
+        elif not is_document_synchronized(registered_doc, file_hash):
+            if registered_doc["file_hash"] != file_hash:
+                doc_info["old_hash"] = registered_doc["file_hash"]
             modified_docs.append(doc_info)
         else:
             unchanged_docs.append(doc_info)
 
     # Check for DELETED documents
-    all_registered = registry.get_all_documents()
+    all_registered = registry.get_all_documents() if registry else []
     for reg_doc in all_registered:
         if reg_doc["relative_path"] not in scanned_rel_paths:
             deleted_docs.append(reg_doc)
@@ -149,6 +163,8 @@ def main() -> None:
     if args.dry_run:
         print("\nDry run mode enabled. No changes were made.")
         return
+
+    assert registry is not None
 
     # If no updates are needed, exit early
     if not (new_docs or modified_docs or deleted_docs):

@@ -168,3 +168,11 @@ To preview changes without making API calls or modifying any databases:
 .\.venv\Scripts\python.exe -m src.sync --dry-run
 ```
 
+## Run Offline Tests
+
+The regression tests use Python's standard library and do not require NVIDIA API keys:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+

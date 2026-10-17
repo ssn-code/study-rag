@@ -18,6 +18,14 @@ from src.registry import DocumentRegistry, RegistryError
 from src.vector_store import StudyVectorStore, VectorStoreError
 
 
+def discover_documents(data_dir: Path) -> list[Path]:
+    """Return supported PDF documents under the data directory."""
+    return sorted(
+        path for path in data_dir.glob("**/*")
+        if path.is_file() and path.suffix.lower() == ".pdf"
+    )
+
+
 def calculate_file_hash(filepath: Path) -> str:
     """Calculate the SHA-256 hash of a file's contents."""
     hasher = sha256()
@@ -53,11 +61,7 @@ def main() -> None:
         print(f"Error: Registry initialization failed: {error}")
         sys.exit(1)
 
-    # Scan the data directory for documents (primarily .pdf)
-    current_files = sorted(
-        path for path in DATA_DIR.glob("**/*")
-        if path.is_file() and path.suffix.lower() in (".pdf", ".pptx", ".docx")
-    )
+    current_files = discover_documents(DATA_DIR)
 
     new_docs = []
     modified_docs = []

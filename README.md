@@ -9,9 +9,9 @@ A Python study assistant that retrieves material from locally persisted ChromaDB
 - `src/`: application source code.
 - `.env`: local secrets and configuration; never commit it.
 
-## Phase 2: embeddings and ChromaDB
+## Current capabilities
 
-The pipeline extracts text from PDFs, creates page-aware chunks, generates embeddings with NVIDIA's API, and stores vectors locally in ChromaDB. Retrieval and generation are not implemented.
+The pipeline extracts text from PDFs, creates page-aware chunks, generates embeddings with NVIDIA's API, and stores vectors locally in ChromaDB. It also supports semantic retrieval, grounded answer generation, and incremental synchronization. PDF is the only supported document format; DOCX and PPTX files are not ingested.
 
 Set the NVIDIA configuration in `.env`:
 

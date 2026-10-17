@@ -7,6 +7,21 @@ import unittest
 from unittest.mock import patch
 
 from src import sync
+from src.vector_store import StudyVectorStore
+
+
+class FakeCollection:
+    def __init__(self, ids: list[str]) -> None:
+        self.ids = ids
+        self.where: dict[str, str] | None = None
+        self.deleted_ids: list[str] = []
+
+    def get(self, *, where: dict[str, str], include: list[str]) -> dict[str, list[str]]:
+        self.where = where
+        return {"ids": self.ids}
+
+    def delete(self, *, ids: list[str]) -> None:
+        self.deleted_ids = ids
 
 
 class SyncTests(unittest.TestCase):
@@ -19,6 +34,34 @@ class SyncTests(unittest.TestCase):
         registered_doc = {"file_hash": "current-hash", "sync_status": "synchronized"}
 
         self.assertTrue(sync.is_document_synchronized(registered_doc, "current-hash"))
+
+    def test_delete_targets_document_relative_path(self) -> None:
+        store = StudyVectorStore.__new__(StudyVectorStore)
+        collection = FakeCollection(["target-chunk"])
+        store.collection = collection
+
+        deleted = store.delete_source_chunks(
+            "shared.pdf", relative_path="data/course-a/shared.pdf"
+        )
+
+        self.assertEqual(deleted, 1)
+        self.assertEqual(collection.where, {"relative_path": "data/course-a/shared.pdf"})
+        self.assertEqual(collection.deleted_ids, ["target-chunk"])
+
+    def test_stale_chunk_cleanup_targets_document_relative_path(self) -> None:
+        store = StudyVectorStore.__new__(StudyVectorStore)
+        collection = FakeCollection(["current-chunk", "stale-chunk"])
+        store.collection = collection
+
+        deleted = store.remove_stale_source_chunks(
+            "shared.pdf",
+            {"current-chunk"},
+            relative_path="data/course-a/shared.pdf",
+        )
+
+        self.assertEqual(deleted, 1)
+        self.assertEqual(collection.where, {"relative_path": "data/course-a/shared.pdf"})
+        self.assertEqual(collection.deleted_ids, ["stale-chunk"])
 
     def test_discover_documents_returns_only_pdfs_recursively(self) -> None:
         with TemporaryDirectory() as directory:

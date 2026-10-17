@@ -113,8 +113,6 @@ def main() -> None:
         if not registered_doc:
             new_docs.append(doc_info)
         elif not is_document_synchronized(registered_doc, file_hash):
-            if registered_doc["file_hash"] != file_hash:
-                doc_info["old_hash"] = registered_doc["file_hash"]
             modified_docs.append(doc_info)
         else:
             unchanged_docs.append(doc_info)
@@ -195,10 +193,9 @@ def main() -> None:
     for doc in deleted_docs:
         try:
             print(f"\nRemoving deleted document: {doc['filename']}")
-            # Delete old chunks
-            deleted_count = store.delete_chunks_by_hash(doc["file_hash"])
-            # Fallback delete by source in case of old ID format
-            deleted_count += store.delete_source_chunks(doc["filename"])
+            deleted_count = store.delete_source_chunks(
+                doc["filename"], relative_path=doc["relative_path"]
+            )
             chunks_deleted += deleted_count
             # Remove from registry
             registry.delete_document(doc["relative_path"])
@@ -207,7 +204,7 @@ def main() -> None:
             sync_errors += 1
 
     # Helper function for ingesting a document (used for both NEW and MODIFIED)
-    def process_document(doc: dict, is_modified: bool = False, old_hash: str = None) -> bool:
+    def process_document(doc: dict) -> bool:
         nonlocal chunks_added, chunks_deleted, api_calls
         doc_path = doc["path"]
         doc_hash = doc["file_hash"]
@@ -238,12 +235,12 @@ def main() -> None:
             )
             chunks_added += len(chunks)
 
-            # Remove the old chunks *after* confirming new chunks are successfully stored
-            old_deleted = 0
-            if old_hash:
-                old_deleted += store.delete_chunks_by_hash(old_hash)
-            # Remove any chunks matching this source filename that are not in the new set
-            old_deleted += store.remove_stale_source_chunks(doc["filename"], {c.id for c in chunks})
+            # Reconcile only chunks belonging to this document path.
+            old_deleted = store.remove_stale_source_chunks(
+                doc["filename"],
+                {c.id for c in chunks},
+                relative_path=doc["relative_path"],
+            )
             chunks_deleted += old_deleted
 
             # Update Document Registry
@@ -282,14 +279,14 @@ def main() -> None:
     # 2. Process NEW documents
     for doc in new_docs:
         print(f"\nProcessing new document: {doc['filename']}...")
-        success = process_document(doc, is_modified=False)
+        success = process_document(doc)
         if not success:
             sync_errors += 1
 
     # 3. Process MODIFIED documents
     for doc in modified_docs:
         print(f"\nProcessing modified document: {doc['filename']}...")
-        success = process_document(doc, is_modified=True, old_hash=doc["old_hash"])
+        success = process_document(doc)
         if not success:
             sync_errors += 1
 

@@ -119,7 +119,12 @@ def ingest_pdf(pdf_path: Path, embedder: NvidiaEmbedder, store: StudyVectorStore
             embeddings=embeddings,
         )
 
-    store.remove_stale_source_chunks(pdf_path.name, {chunk.id for chunk in chunks})
+    relative_path = str(chunks[0].metadata["relative_path"])
+    store.remove_stale_source_chunks(
+        pdf_path.name,
+        {chunk.id for chunk in chunks},
+        relative_path=relative_path,
+    )
     return {
         "pages": len(pages),
         "chunks": len(chunks),

@@ -62,10 +62,17 @@ class StudyVectorStore:
         except Exception as error:
             raise VectorStoreError("Could not store chunks in ChromaDB.") from error
 
-    def remove_stale_source_chunks(self, source: str, current_ids: set[str]) -> int:
+    def remove_stale_source_chunks(
+        self,
+        source: str,
+        current_ids: set[str],
+        *,
+        relative_path: str | None = None,
+    ) -> int:
         """Remove chunks from an updated source that no longer exist in its current text."""
         try:
-            result = self.collection.get(where={"source": source}, include=[])
+            where = {"relative_path": relative_path} if relative_path else {"source": source}
+            result = self.collection.get(where=where, include=[])
             stale_ids = [chunk_id for chunk_id in result["ids"] if chunk_id not in current_ids]
             if stale_ids:
                 self.collection.delete(ids=stale_ids)
@@ -73,10 +80,11 @@ class StudyVectorStore:
         except Exception as error:
             raise VectorStoreError("Could not reconcile existing chunks for this source.") from error
 
-    def delete_source_chunks(self, source: str) -> int:
+    def delete_source_chunks(self, source: str, *, relative_path: str | None = None) -> int:
         """Remove all chunks associated with a specific source filename."""
         try:
-            result = self.collection.get(where={"source": source}, include=[])
+            where = {"relative_path": relative_path} if relative_path else {"source": source}
+            result = self.collection.get(where=where, include=[])
             deleted_count = len(result["ids"])
             if deleted_count > 0:
                 self.collection.delete(ids=result["ids"])
